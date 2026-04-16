@@ -702,6 +702,7 @@
   </div>
 
   <div id="toast"></div>
+  <div id="info-panel-backdrop"></div>
 
   <div id="kbd-hint">space play/pause &nbsp;·&nbsp; ← → seek &nbsp;·&nbsp; ↑ ↓ volume &nbsp;·&nbsp; f cinema &nbsp;·&nbsp; esc exit</div>
 
@@ -1909,7 +1910,7 @@
   }
 
   // ── Mobile info panel drawer ─────────────────────────────────────────────────
-  (function initMobileInfoPanel() {
+  function initMobileInfoPanel() {
     const panel    = document.getElementById('info-panel');
     const backdrop = document.getElementById('info-panel-backdrop');
     const btn      = document.getElementById('btn-info-panel');
@@ -1917,7 +1918,7 @@
     function close() { panel.classList.remove('mobile-open'); backdrop.classList.remove('active'); }
     btn.addEventListener('click', () => panel.classList.contains('mobile-open') ? close() : open());
     backdrop.addEventListener('click', close);
-  })();
+  }
 
   // ── Panel tabs ───────────────────────────────────────────────────────────────
   function initPanelTabs() {
@@ -2800,6 +2801,7 @@
     initSplash();
     initDropZone();
     initControls();
+  initMobileInfoPanel();
     initKeyboard();
     initCollapsibles();
     initEq();
@@ -2826,6 +2828,5 @@
     document.getElementById('btn-like').addEventListener('click', spotifyToggleLike);
   });
   </script>
-  <div id="info-panel-backdrop"></div>
 </body>
 </html>
