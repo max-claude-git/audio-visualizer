@@ -2500,7 +2500,7 @@
     if (spotifyPlayer) { spotifyPlayer.disconnect(); spotifyPlayer = null; }
     spotifyPlayer = new Spotify.Player({
       name: 'Audio Visualizer',
-      getOAuthToken: cb => { ensureSpotifyToken().then(() => cb(spotifyToken)); },
+      getOAuthToken: cb => { ensureSpotifyToken().then(ok => { if (ok && spotifyToken) cb(spotifyToken); }); },
       volume: parseFloat(document.getElementById('volume-slider').value),
     });
 
@@ -2535,17 +2535,32 @@
 
     spotifyPlayer.addListener('account_error',        () => showToast('Spotify Premium required for browser playback.'));
     spotifyPlayer.addListener('initialization_error', ({ message }) => showToast('Playback error: ' + message));
-    spotifyPlayer.addListener('authentication_error', () => showToast('Spotify auth error — please reconnect.'));
+    spotifyPlayer.addListener('authentication_error', () => {
+      // Token lacks 'streaming' scope or is invalid — clear session and re-auth
+      sessionStorage.removeItem('spotify_token');
+      sessionStorage.removeItem('spotify_expiry');
+      sessionStorage.removeItem('spotify_refresh');
+      if (spotifyPlayer) { spotifyPlayer.disconnect(); spotifyPlayer = null; spotifyDeviceId = null; }
+      showToast('Reconnecting Spotify with updated permissions…');
+      setTimeout(initiateSpotifyAuth, 1200);
+    });
 
     spotifyPlayer.connect();
   }
 
   async function activateBrowserPlayback() {
     if (!spotifyDeviceId) return;
-    // Transfer + resume whatever was last playing
-    const res = await spotifyFetch(`/me/player/play?device_id=${spotifyDeviceId}`, 'PUT');
-    if (res !== null) return;
-    // Nothing was active — play most recently played track
+    // Get current playback state (works even if paused)
+    const state = await spotifyFetch('/me/player');
+    if (state && state.item) {
+      // Transfer the current/paused track to browser at the right position
+      await spotifyFetch(`/me/player/play?device_id=${spotifyDeviceId}`, 'PUT', {
+        uris: [state.item.uri],
+        position_ms: state.progress_ms || 0,
+      });
+      return;
+    }
+    // Nothing active anywhere — fall back to recently played
     const recent = await spotifyFetch('/me/player/recently-played?limit=1');
     const uri = recent?.items?.[0]?.track?.uri;
     if (uri) await spotifyFetch(`/me/player/play?device_id=${spotifyDeviceId}`, 'PUT', { uris: [uri] });
