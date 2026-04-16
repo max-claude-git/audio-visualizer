@@ -2536,13 +2536,8 @@
     spotifyPlayer.addListener('account_error',        () => showToast('Spotify Premium required for browser playback.'));
     spotifyPlayer.addListener('initialization_error', ({ message }) => showToast('Playback error: ' + message));
     spotifyPlayer.addListener('authentication_error', () => {
-      // Token lacks 'streaming' scope or is invalid — clear session and re-auth
-      sessionStorage.removeItem('spotify_token');
-      sessionStorage.removeItem('spotify_expiry');
-      sessionStorage.removeItem('spotify_refresh');
+      // SDK couldn't authenticate — disconnect and fall back to polling mode
       if (spotifyPlayer) { spotifyPlayer.disconnect(); spotifyPlayer = null; spotifyDeviceId = null; }
-      showToast('Reconnecting Spotify with updated permissions…');
-      setTimeout(initiateSpotifyAuth, 1200);
     });
 
     spotifyPlayer.connect();
