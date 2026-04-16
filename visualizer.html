@@ -571,6 +571,12 @@
               <span id="lastfm-listeners-label">/&nbsp;100</span>
             </div>
             <p style="font-size:0.78rem;color:#666;margin-bottom:10px">popularity score</p>
+            <p id="sp-followers" style="font-size:0.78rem;color:#888;margin-bottom:8px" hidden></p>
+            <div id="sp-genres" style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px" hidden></div>
+            <div id="sp-related-wrap" hidden>
+              <p class="info-sublabel">Related Artists</p>
+              <div id="sp-related" style="display:flex;flex-wrap:wrap;gap:5px"></div>
+            </div>
           </div>
           <p id="spotify-info-empty" class="wiki-empty" hidden>No data available.</p>
         </div>
@@ -1969,6 +1975,11 @@
     document.getElementById('similar-artists-wrap').hidden = true;
     document.getElementById('similar-artists').innerHTML   = '';
     document.getElementById('tracklist-wrap').hidden = true;
+    document.getElementById('sp-followers').hidden = true;
+    document.getElementById('sp-genres').hidden = true;
+    document.getElementById('sp-genres').innerHTML = '';
+    document.getElementById('sp-related-wrap').hidden = true;
+    document.getElementById('sp-related').innerHTML = '';
     document.getElementById('tracklist').innerHTML   = '';
     document.getElementById('btn-youtube').classList.remove('visible');
     // Restore Last.fm mode in stats section
@@ -2435,7 +2446,7 @@
     document.getElementById('btn-save-playlist').style.display='block';
     document.getElementById('btn-like').style.display='flex';
     document.getElementById('btn-mic').style.display='block';
-    document.getElementById('btn-back').textContent = 'File';
+    document.getElementById('btn-back').textContent = 'Select device file';
     requestAnimationFrame(()=>requestAnimationFrame(sizeCanvas));
     spotifyGetMe();
 
@@ -2542,7 +2553,6 @@
     }
 
     const feat = await spotifyFetch(`/audio-features/${track.id}`);
-    spInfoLoading.hidden = true;
     if (feat && feat.tempo) {
       spotifyFeatures = feat;
       currentBpm = String(Math.round(feat.tempo));
@@ -2550,6 +2560,35 @@
       currentKey = feat.key >= 0 ? keyNames[feat.key] + (feat.mode===1?'':'m') : '';
       updateSongMeta();
     }
+
+    // Fetch artist data: followers, genres, related artists
+    const artistId = track.artists[0]?.id;
+    if (artistId) {
+      const gen = fetchGen;
+      const artistData = await spotifyFetch(`/artists/${artistId}`);
+      if (gen !== fetchGen) return;
+      if (artistData) {
+        const followersEl = document.getElementById('sp-followers');
+        if (artistData.followers?.total != null) {
+          followersEl.textContent = artistData.followers.total.toLocaleString() + ' followers';
+          followersEl.hidden = false;
+        }
+        const genresEl = document.getElementById('sp-genres');
+        if (artistData.genres?.length) {
+          genresEl.innerHTML = artistData.genres.map(g => `<span class="lastfm-tag">${g}</span>`).join('');
+          genresEl.hidden = false;
+        }
+        const related = await spotifyFetch(`/artists/${artistId}/related-artists`);
+        if (gen !== fetchGen) return;
+        if (related?.artists?.length) {
+          const container = document.getElementById('sp-related');
+          container.innerHTML = related.artists.slice(0, 6).map(a => `<span class="similar-chip">${a.name}</span>`).join('');
+          document.getElementById('sp-related-wrap').hidden = false;
+        }
+      }
+    }
+
+    spInfoLoading.hidden = true;
     spInfoResult.hidden = false;
 
     const analysis = await spotifyFetch(`/audio-analysis/${track.id}`);
