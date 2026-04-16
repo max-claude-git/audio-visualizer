@@ -682,7 +682,7 @@
   // ── Config ──────────────────────────────────────────────────────────────────
   const LASTFM_API_KEY    = 'e515670feb2da14f25406442f18f17a0';
   const SPOTIFY_CLIENT_ID = '44815ed0fe794738baa4b4290f0114d9';
-  const SPOTIFY_REDIRECT  = 'http://127.0.0.1:8080/visualizer.html';
+  const SPOTIFY_REDIRECT  = window.location.origin + window.location.pathname;
   const SPOTIFY_SCOPES    = 'user-read-currently-playing user-read-playback-state user-modify-playback-state user-library-read user-library-modify playlist-read-private playlist-modify-public playlist-modify-private';
 
   // ── Theme presets ────────────────────────────────────────────────────────────
