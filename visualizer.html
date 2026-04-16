@@ -716,10 +716,12 @@
   const ICON_PAUSE = `<svg width="15" height="15" viewBox="0 0 15 15" fill="currentColor"><rect x="1.5" y="1" width="4.5" height="13"/><rect x="9" y="1" width="4.5" height="13"/></svg>`;
 
   // ── Config ──────────────────────────────────────────────────────────────────
+  window.onSpotifyWebPlaybackSDKReady = () => { if (spotifyMode) initSpotifyPlayer(); };
+
   const LASTFM_API_KEY    = 'e515670feb2da14f25406442f18f17a0';
   const SPOTIFY_CLIENT_ID = '44815ed0fe794738baa4b4290f0114d9';
   const SPOTIFY_REDIRECT  = window.location.origin + window.location.pathname;
-  const SPOTIFY_SCOPES    = 'user-read-currently-playing user-read-playback-state user-modify-playback-state user-library-read user-library-modify playlist-read-private playlist-modify-public playlist-modify-private';
+  const SPOTIFY_SCOPES    = 'user-read-currently-playing user-read-playback-state user-modify-playback-state user-library-read user-library-modify playlist-read-private playlist-modify-public playlist-modify-private streaming user-read-recently-played';
 
   // ── Theme presets ────────────────────────────────────────────────────────────
   const THEME_PRESETS = {
@@ -811,6 +813,8 @@
   let cinemaMaxH      = MAX_HEIGHT; // A: scaled max bar height for cinema canvas
 
   // Spotify state
+  let spotifyPlayer   = null;
+  let spotifyDeviceId = null;
   let spotifyMode      = false;
   let spotifyToken     = null;
   let spotifyExpiry    = 0;
@@ -1825,8 +1829,10 @@
     });
 
     document.getElementById('volume-slider').addEventListener('input', e => {
-      if (gainNode) gainNode.gain.value = parseFloat(e.target.value);
-      document.documentElement.style.setProperty('--vol', (e.target.value * 100) + '%');
+      const val = parseFloat(e.target.value);
+      if (gainNode) gainNode.gain.value = val;
+      if (spotifyPlayer) spotifyPlayer.setVolume(val);
+      document.documentElement.style.setProperty('--vol', (val * 100) + '%');
     });
 
     document.getElementById('btn-add-song').addEventListener('click', () => document.getElementById('file-input').click());
@@ -2317,11 +2323,13 @@
   }
 
   async function spotifyNext() {
+    if (spotifyPlayer) { await spotifyPlayer.nextTrack(); return; }
     await spotifyFetch('/me/player/next', 'POST');
     setTimeout(pollSpotify, 600);
   }
 
   async function spotifyPrev() {
+    if (spotifyPlayer) { await spotifyPlayer.previousTrack(); return; }
     await spotifyFetch('/me/player/previous', 'POST');
     setTimeout(pollSpotify, 600);
   }
@@ -2476,6 +2484,73 @@
     } catch(_) { return null; }
   }
 
+  // ── Spotify Web Playback SDK ─────────────────────────────────────────────────
+  function loadSpotifySDK() {
+    if (document.getElementById('spotify-sdk')) {
+      if (window.Spotify) initSpotifyPlayer();
+      return;
+    }
+    const s = document.createElement('script');
+    s.id  = 'spotify-sdk';
+    s.src = 'https://sdk.scdn.co/spotify-player.js';
+    document.head.appendChild(s);
+  }
+
+  function initSpotifyPlayer() {
+    if (spotifyPlayer) { spotifyPlayer.disconnect(); spotifyPlayer = null; }
+    spotifyPlayer = new Spotify.Player({
+      name: 'Audio Visualizer',
+      getOAuthToken: cb => { ensureSpotifyToken().then(() => cb(spotifyToken)); },
+      volume: parseFloat(document.getElementById('volume-slider').value),
+    });
+
+    spotifyPlayer.addListener('ready', ({ device_id }) => {
+      spotifyDeviceId = device_id;
+      activateBrowserPlayback();
+    });
+
+    spotifyPlayer.addListener('not_ready', () => { spotifyDeviceId = null; });
+
+    spotifyPlayer.addListener('player_state_changed', state => {
+      if (!state) return;
+      const track = state.track_window.current_track;
+      spotifyIsPlaying = !state.paused;
+      spotifyProgress  = state.position;
+      spotifyDuration  = state.duration;
+      document.getElementById('btn-playpause').innerHTML   = spotifyIsPlaying ? ICON_PAUSE : ICON_PLAY;
+      document.getElementById('cinema-btn-play').innerHTML = spotifyIsPlaying ? ICON_PAUSE : ICON_PLAY;
+      if (track && track.id !== spotifyTrackId) {
+        spotifyTrackId = track.id;
+        lyricsData = null; currentLyricIdx = -1;
+        onSpotifyTrackChange({
+          id:         track.id,
+          name:       track.name,
+          popularity: null,
+          artists:    track.artists.map(a => ({ name: a.name, id: a.uri.split(':')[2] })),
+          album:      { name: track.album.name, images: track.album.images },
+          uri:        track.uri,
+        });
+      }
+    });
+
+    spotifyPlayer.addListener('account_error',        () => showToast('Spotify Premium required for browser playback.'));
+    spotifyPlayer.addListener('initialization_error', ({ message }) => showToast('Playback error: ' + message));
+    spotifyPlayer.addListener('authentication_error', () => showToast('Spotify auth error — please reconnect.'));
+
+    spotifyPlayer.connect();
+  }
+
+  async function activateBrowserPlayback() {
+    if (!spotifyDeviceId) return;
+    // Transfer + resume whatever was last playing
+    const res = await spotifyFetch(`/me/player/play?device_id=${spotifyDeviceId}`, 'PUT');
+    if (res !== null) return;
+    // Nothing was active — play most recently played track
+    const recent = await spotifyFetch('/me/player/recently-played?limit=1');
+    const uri = recent?.items?.[0]?.track?.uri;
+    if (uri) await spotifyFetch(`/me/player/play?device_id=${spotifyDeviceId}`, 'PUT', { uris: [uri] });
+  }
+
   function enterSpotifyMode() {
     spotifyMode=true; spotifySessionTracks=[];
     document.getElementById('splash').classList.add('gone');
@@ -2500,6 +2575,7 @@
     pollSpotify();
     spotifyPollTimer = setInterval(pollSpotify, 5000);
     startSpotifyViz();
+    loadSpotifySDK();
   }
 
   function exitSpotifyMode() {
@@ -2510,6 +2586,7 @@
     sessionStorage.removeItem('spotify_expiry');
     sessionStorage.removeItem('spotify_refresh');
     spotifyToken=null; spotifyTrackId=null;
+    if (spotifyPlayer) { spotifyPlayer.disconnect(); spotifyPlayer=null; spotifyDeviceId=null; }
     document.getElementById('spotify-badge').classList.remove('visible');
     document.getElementById('btn-add-song').style.display='';
     document.getElementById('btn-save-playlist').style.display='none';
@@ -2718,6 +2795,7 @@
 
   async function spotifyTogglePlay() {
     if (!spotifyMode) return;
+    if (spotifyPlayer) { await spotifyPlayer.togglePlay(); return; }
     const endpoint = spotifyIsPlaying ? '/me/player/pause' : '/me/player/play';
     await spotifyFetch(endpoint, 'PUT');
     spotifyIsPlaying = !spotifyIsPlaying;
@@ -2728,6 +2806,7 @@
   async function spotifySeek(ms) {
     if (!spotifyMode) return;
     ms = Math.max(0, Math.min(ms, spotifyDuration));
+    if (spotifyPlayer) { await spotifyPlayer.seek(ms); spotifyProgress = ms; return; }
     await spotifyFetch(`/me/player/seek?position_ms=${Math.round(ms)}`, 'PUT');
     spotifyProgress = ms;
   }
